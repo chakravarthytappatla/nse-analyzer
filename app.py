@@ -10,7 +10,7 @@ Serves:
                                  for the requested NSE symbols and returns JSON
 ==============================================================================
 """
-
+import os
 import base64
 import contextlib
 import io
@@ -493,7 +493,6 @@ def api_analyze():
         "results": results,
         "correlation": correlation,
     })
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8790, debug=True)
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 8790))
+    app.run(host='0.0.0.0', port=port)
