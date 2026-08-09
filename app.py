@@ -19,6 +19,10 @@ import time
 import warnings
 from datetime import datetime, timedelta
 
+# Matplotlib caches fonts/config on first import; Render's default home
+# directory isn't guaranteed writable, so point it at /tmp before import.
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
+
 import matplotlib
 matplotlib.use("Agg")  # headless rendering for server-side chart generation
 import matplotlib.pyplot as plt
