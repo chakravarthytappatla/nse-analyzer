@@ -404,11 +404,11 @@ METRIC_EXPLANATIONS = {
     "dma10": "Average closing price over the last 10 trading days — a short-term trend line.",
     "rsi": "Momentum gauge from 0\u2013100. Above 70 usually signals overbought, below 30 usually signals oversold.",
     "beta": "How much the stock tends to move for every 1% move in the Nifty 50. Above 1 means more volatile than the market; below 1 means less.",
-    "annual_return": "The stock's average yearly return over the last 5 years, compounded.",
+    "annual_return": "Annualized return earned by the stock over the selected 5-year period.",
     "annual_vol": "How much the stock's returns swing around their average each year \u2014 higher means a bumpier ride.",
     "max_drawdown": "The single worst peak-to-trough fall an investor would have lived through in the last 5 years.",
-    "skewness": "Whether extreme returns lean positive or negative. Positive skew means occasional big gains; negative skew means occasional big losses.",
-    "kurtosis": "How often extreme, surprising moves happen compared to a normal spread of returns. Higher means more frequent shocks in either direction.",
+    "skewness": "Measures the asymmetry of the return distribution. Negative skew indicates a longer left tail, meaning relatively more extreme negative returns..",
+    "kurtosis": "Measures the tail heaviness of the return distribution. Higher kurtosis indicates a greater tendency for extreme returns compared with a normal distribution..",
     "sharpe": "Return earned per unit of total risk taken, above the risk-free rate. Higher is better.",
     "treynor": "Return earned per unit of market risk (beta) taken, above the risk-free rate. Higher is better.",
     "alpha": "Return the stock generated beyond what its market risk alone would predict \u2014 a rough read on stock-picking skill.",
@@ -417,7 +417,7 @@ METRIC_EXPLANATIONS = {
     "valuation": "A quick read on whether the price looks cheap or expensive relative to its own recent trend and 5-year range.",
     "outperformance": "How much better (or worse) the stock did than the Nifty 50 over the same period, annualised.",
     "pivots": "Classic support/resistance levels calculated from the most recent trading day's high, low and close.",
-    "histogram": "Each bar is how many trading days had a return in that range \u2014 a wider, flatter spread means bumpier, riskier days.",
+    "histogram": "Each bar represents the frequency of daily returns within that range. A wider distribution indicates greater variability in daily returns..",
     "benchmark_chart": "Shows what \u20b9100 invested 5 years ago would be worth today in the stock versus in the Nifty 50 itself.",
 }
 
