@@ -17,12 +17,13 @@
   let activeSuggestions = [];
   let activeIndex = -1;
   let debounceTimer = null;
+  let explanations = {};   // filled in from /api/analyze response each run
 
   const STATUS_MESSAGES = [
     'Pulling five years of price history…',
     'Reading the current 10-year bond yield…',
     'Running beta regression against Nifty 50…',
-    'Scoring Sharpe, Treynor, Alpha and Fama…',
+    'Scoring Sharpe, Treynor, Sortino, Alpha and Fama…',
     'Rendering charts…',
   ];
 
@@ -193,6 +194,7 @@
         return;
       }
 
+      explanations = data.explanations || {};
       renderMacro(data);
       renderResults(data.results);
       renderCorrelation(data.correlation);
@@ -206,6 +208,11 @@
   function showError(msg) {
     errorArea.textContent = msg;
     errorArea.hidden = false;
+  }
+
+  function note(key) {
+    const text = explanations[key];
+    return text ? `<div class="metric-note">${escapeHtml(text)}</div>` : '';
   }
 
   function renderMacro(data) {
@@ -242,6 +249,9 @@
       }
 
       const valClass = r.valuation.replace(' ', '.');
+      const outClass = r.outperformance_pct >= 0 ? 'pos' : 'neg';
+      const outSign = r.outperformance_pct >= 0 ? '+' : '';
+
       card.innerHTML = `
         <div class="card-head">
           <h3>${escapeHtml(r.ticker)}</h3>
@@ -251,33 +261,69 @@
           <span class="price">₹${r.price.toLocaleString('en-IN')}</span>
           <span class="sub">10-DMA ₹${r.dma10.toLocaleString('en-IN')} · RSI ${r.rsi ?? '—'} (${r.rsi_zone})</span>
         </div>
-        <div class="chart-wrap"><img src="data:image/png;base64,${r.chart_b64}" alt="${escapeHtml(r.ticker)} price chart with 10-DMA and pivot levels" /></div>
-        ${renderRangeBar(r)}
-        <div class="grades">
-          ${gradeItem('Sharpe', r.sharpe, r.sharpe_grade)}
-          ${gradeItem('Treynor', r.treynor, r.treynor_grade)}
-          ${gradeItem('Jensen Alpha', r.alpha_pct + '%', r.alpha_grade)}
-          ${gradeItem('Fama net', r.fama_pct + '%', r.fama_grade)}
+        ${note('valuation')}
+
+        <div class="chart-block">
+          <div class="chart-wrap"><img src="data:image/png;base64,${r.chart_b64}" alt="${escapeHtml(r.ticker)} price chart with 10-DMA and pivot levels" /></div>
         </div>
+        ${renderRangeBar(r)}
+        ${note('pivots')}
+
+        <div class="benchmark-strip">
+          <div class="bstat">
+            <span class="b-label">${escapeHtml(r.ticker)}, annualised</span>
+            <span class="b-value">${r.annual_return_pct}%</span>
+          </div>
+          <div class="bstat">
+            <span class="b-label">Nifty 50, annualised</span>
+            <span class="b-value">${r.benchmark_annual_return_pct}%</span>
+          </div>
+          <div class="bstat">
+            <span class="b-label">Outperformance</span>
+            <span class="b-value ${outClass}">${outSign}${r.outperformance_pct}%</span>
+          </div>
+        </div>
+        ${note('outperformance')}
+        <div class="chart-block">
+          ${r.benchmark_chart_b64
+            ? `<div class="chart-wrap"><img src="data:image/png;base64,${r.benchmark_chart_b64}" alt="${escapeHtml(r.ticker)} vs Nifty 50 growth comparison" /></div>`
+            : ''}
+        </div>
+        ${note('benchmark_chart')}
+
+        <div class="grades">
+          ${gradeItem('Sharpe', r.sharpe, r.sharpe_grade, 'sharpe')}
+          ${gradeItem('Sortino', r.sortino ?? '—', r.sortino_grade, 'sortino')}
+          ${gradeItem('Treynor', r.treynor, r.treynor_grade, 'treynor')}
+          ${gradeItem('Jensen Alpha', r.alpha_pct + '%', r.alpha_grade, 'alpha')}
+          ${gradeItem('Fama net', r.fama_pct + '%', r.fama_grade, 'fama')}
+        </div>
+
+        <div class="chart-block">
+          <div class="chart-wrap"><img src="data:image/png;base64,${r.histogram_b64}" alt="${escapeHtml(r.ticker)} daily return distribution histogram" /></div>
+        </div>
+        ${note('histogram')}
+
         <div class="stat-grid">
-          <div><span>Beta</span>${r.beta}</div>
-          <div><span>Ann. return</span>${r.annual_return_pct}%</div>
-          <div><span>Ann. vol</span>${r.annual_vol_pct}%</div>
-          <div><span>Max drawdown</span>${r.max_drawdown_pct}%</div>
-          <div><span>Skew</span>${r.skewness}</div>
-          <div><span>Kurtosis</span>${r.kurtosis}</div>
+          <div><span class="stat-label">Beta</span>${r.beta}${note('beta')}</div>
+          <div><span class="stat-label">Ann. return</span>${r.annual_return_pct}%${note('annual_return')}</div>
+          <div><span class="stat-label">Ann. vol</span>${r.annual_vol_pct}%${note('annual_vol')}</div>
+          <div><span class="stat-label">Max drawdown</span>${r.max_drawdown_pct}%${note('max_drawdown')}</div>
+          <div><span class="stat-label">Skew</span>${r.skewness}${note('skewness')}</div>
+          <div><span class="stat-label">Kurtosis</span>${r.kurtosis}${note('kurtosis')}</div>
         </div>
       `;
       resultsGrid.appendChild(card);
     });
   }
 
-  function gradeItem(label, value, grade) {
+  function gradeItem(label, value, grade, key) {
     return `
       <div class="grade-item">
         <div class="g-label">${label}</div>
         <div class="g-value">${value}</div>
         <div class="g-tag ${grade}">${grade}</div>
+        ${note(key)}
       </div>
     `;
   }

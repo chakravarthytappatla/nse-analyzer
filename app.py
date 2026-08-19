@@ -267,7 +267,31 @@ def grade_fama(x):
     return "Poor"
 
 
-def compute_performance_measures(stock_stats, beta, rf, market_return, market_vol):
+def grade_sortino(x):
+    # Sortino tends to run higher than Sharpe for the same portfolio since it
+    # only counts downside swings, so the bar is set a little higher.
+    if x > 1.25: return "Excellent"
+    if x >= 0.90: return "Good"
+    if x >= 0.60: return "Fair"
+    return "Poor"
+
+
+def compute_sortino_ratio(daily_returns, annual_return, rf, target_daily_return=0.0):
+    """Sortino ratio: like Sharpe, but only penalises downside volatility
+    (returns below a minimum-acceptable target, default 0%) rather than
+    total volatility — a fairer risk measure when upside swings shouldn't
+    count against a stock."""
+    clean = daily_returns.dropna()
+    downside = clean[clean < target_daily_return]
+    if len(downside) == 0:
+        downside_deviation = 0.0
+    else:
+        downside_deviation = float(np.sqrt((downside ** 2).mean()) * np.sqrt(TRADING_DAYS_PER_YEAR))
+    sortino = (annual_return - rf) / downside_deviation if downside_deviation != 0 else float("nan")
+    return sortino, downside_deviation
+
+
+def compute_performance_measures(stock_stats, daily_returns, beta, rf, market_return, market_vol):
     Rp, sigma_p = stock_stats["annual_return"], stock_stats["annual_volatility"]
     Rm, sigma_m = market_return, market_vol
 
@@ -278,11 +302,15 @@ def compute_performance_measures(stock_stats, beta, rf, market_return, market_vo
     required_return_total_risk = rf + (sigma_p / sigma_m) * (Rm - rf) if sigma_m != 0 else float("nan")
     fama_net_selectivity = (Rp - rf) - (required_return_total_risk - rf) if sigma_m != 0 else float("nan")
 
+    sortino, downside_dev = compute_sortino_ratio(daily_returns, Rp, rf)
+
     return {
         "sharpe": sharpe, "sharpe_grade": grade_sharpe(sharpe),
         "treynor": treynor, "treynor_grade": grade_treynor(treynor),
         "jensen_alpha_pct": jensen_alpha * 100, "jensen_alpha_grade": grade_alpha(jensen_alpha * 100),
         "fama_pct": fama_net_selectivity * 100, "fama_grade": grade_fama(fama_net_selectivity * 100),
+        "sortino": sortino, "sortino_grade": grade_sortino(sortino),
+        "downside_deviation_pct": downside_dev * 100,
     }
 
 
@@ -290,6 +318,109 @@ def compute_performance_measures(stock_stats, beta, rf, market_return, market_vo
 # CHART RENDERING (server-side, returned as base64 PNG so the frontend can
 # simply drop it into an <img> tag)
 # ==============================================================================
+
+def render_returns_histogram(ticker, daily_returns):
+    """Histogram of daily returns — shows how spread out / risky the day-to-day
+    moves have been, and whether losses or gains dominate the tails."""
+    plt.style.use("dark_background")
+    fig, ax = plt.subplots(figsize=(9, 4.2), dpi=140)
+    fig.patch.set_facecolor("#12161c")
+    ax.set_facecolor("#12161c")
+
+    clean_pct = daily_returns.dropna() * 100
+    n_bins = min(60, max(20, int(len(clean_pct) / 15)))
+    counts, bins, patches = ax.hist(clean_pct, bins=n_bins, edgecolor="#12161c", alpha=0.95)
+    for patch, edge in zip(patches, bins[:-1]):
+        patch.set_facecolor("#ff5c5c" if edge < 0 else "#37d67a")
+
+    mean_val = float(clean_pct.mean())
+    ax.axvline(mean_val, color="#ffb347", linestyle="--", linewidth=1.4,
+               label=f"Mean {mean_val:.2f}%")
+    ax.axvline(0, color="#9aa4b2", linestyle=":", linewidth=1)
+
+    ax.set_title(f"{ticker} \u2014 Daily Return Distribution", fontsize=13,
+                 color="#f2f2f2", weight="bold", loc="left")
+    ax.set_xlabel("Daily return (%)", color="#9aa4b2", fontsize=9)
+    ax.set_ylabel("Frequency (trading days)", color="#9aa4b2", fontsize=9)
+    ax.tick_params(colors="#9aa4b2", labelsize=8)
+    for spine in ax.spines.values():
+        spine.set_color("#2a313c")
+    ax.grid(alpha=0.15, color="#5a6577")
+    ax.legend(loc="upper right", fontsize=8, frameon=False, labelcolor="#e6e6e6")
+    fig.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", facecolor=fig.get_facecolor())
+    plt.close(fig)
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode("utf-8")
+
+
+def render_benchmark_comparison_chart(ticker, close, benchmark_close):
+    """Growth-of-₹100 comparison: the stock vs Nifty 50, both rebased to a
+    common starting point so relative performance is directly readable."""
+    aligned = pd.concat([close, benchmark_close], axis=1).dropna()
+    aligned.columns = ["stock", "benchmark"]
+    if aligned.empty:
+        return None
+
+    stock_growth = aligned["stock"] / aligned["stock"].iloc[0] * 100
+    bench_growth = aligned["benchmark"] / aligned["benchmark"].iloc[0] * 100
+
+    plt.style.use("dark_background")
+    fig, ax = plt.subplots(figsize=(9, 4.2), dpi=140)
+    fig.patch.set_facecolor("#12161c")
+    ax.set_facecolor("#12161c")
+
+    ax.plot(stock_growth.index, stock_growth.values, label=ticker, linewidth=1.7, color="#ffb347")
+    ax.plot(bench_growth.index, bench_growth.values, label="Nifty 50", linewidth=1.4,
+            color="#5ecbf1", linestyle="--")
+
+    ax.set_title(f"{ticker} vs Nifty 50 \u2014 Growth of \u20b9100", fontsize=13,
+                 color="#f2f2f2", weight="bold", loc="left")
+    ax.set_ylabel("Value of \u20b9100 invested", color="#9aa4b2", fontsize=9)
+    ax.tick_params(colors="#9aa4b2", labelsize=8)
+    for spine in ax.spines.values():
+        spine.set_color("#2a313c")
+    ax.grid(alpha=0.15, color="#5a6577")
+    ax.legend(loc="upper left", fontsize=8, frameon=False, labelcolor="#e6e6e6")
+    fig.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", facecolor=fig.get_facecolor())
+    plt.close(fig)
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode("utf-8")
+
+
+# ==============================================================================
+# PLAIN-ENGLISH EXPLANATIONS — one short line per metric, shown as a caption
+# under each value in the UI. Kept here (not duplicated per-ticker) since the
+# wording is the same for every stock analyzed.
+# ==============================================================================
+
+METRIC_EXPLANATIONS = {
+    "price": "The most recent closing price on the NSE.",
+    "dma10": "Average closing price over the last 10 trading days — a short-term trend line.",
+    "rsi": "Momentum gauge from 0\u2013100. Above 70 usually signals overbought, below 30 usually signals oversold.",
+    "beta": "How much the stock tends to move for every 1% move in the Nifty 50. Above 1 means more volatile than the market; below 1 means less.",
+    "annual_return": "The stock's average yearly return over the last 5 years, compounded.",
+    "annual_vol": "How much the stock's returns swing around their average each year \u2014 higher means a bumpier ride.",
+    "max_drawdown": "The single worst peak-to-trough fall an investor would have lived through in the last 5 years.",
+    "skewness": "Whether extreme returns lean positive or negative. Positive skew means occasional big gains; negative skew means occasional big losses.",
+    "kurtosis": "How often extreme, surprising moves happen compared to a normal spread of returns. Higher means more frequent shocks in either direction.",
+    "sharpe": "Return earned per unit of total risk taken, above the risk-free rate. Higher is better.",
+    "treynor": "Return earned per unit of market risk (beta) taken, above the risk-free rate. Higher is better.",
+    "alpha": "Return the stock generated beyond what its market risk alone would predict \u2014 a rough read on stock-picking skill.",
+    "fama": "Extra return earned beyond what was needed to compensate for the stock's total risk \u2014 isolates true selectivity from just taking on more risk.",
+    "sortino": "Like the Sharpe ratio, but only penalises downside swings, not upside ones \u2014 often a fairer risk measure for cautious investors.",
+    "valuation": "A quick read on whether the price looks cheap or expensive relative to its own recent trend and 5-year range.",
+    "outperformance": "How much better (or worse) the stock did than the Nifty 50 over the same period, annualised.",
+    "pivots": "Classic support/resistance levels calculated from the most recent trading day's high, low and close.",
+    "histogram": "Each bar is how many trading days had a return in that range \u2014 a wider, flatter spread means bumpier, riskier days.",
+    "benchmark_chart": "Shows what \u20b9100 invested 5 years ago would be worth today in the stock versus in the Nifty 50 itself.",
+}
+
 
 def render_price_chart(ticker, close, dma10, pivots):
     plt.style.use("dark_background")
@@ -324,7 +455,7 @@ def render_price_chart(ticker, close, dma10, pivots):
 # CORE ANALYSIS FOR A SINGLE TICKER
 # ==============================================================================
 
-def analyze_ticker(ticker, benchmark_returns, market_return, market_vol, risk_free_rate):
+def analyze_ticker(ticker, benchmark_close, benchmark_returns, market_return, market_vol, risk_free_rate):
     df = fetch_price_history_cached(ticker)
     if df.empty or "Close" not in df.columns:
         return {"ticker": ticker, "error": "No data found for this symbol."}
@@ -348,8 +479,12 @@ def analyze_ticker(ticker, benchmark_returns, market_return, market_vol, risk_fr
     pivots = compute_pivot_points(last_high, last_low, last_close)
 
     valuation, percentile, price_vs_dma = classify_valuation(current_price, current_dma10, close)
-    perf = compute_performance_measures(desc_stats, reg_stats["beta"], risk_free_rate, market_return, market_vol)
+    perf = compute_performance_measures(desc_stats, daily_returns, reg_stats["beta"], risk_free_rate, market_return, market_vol)
     chart_b64 = render_price_chart(ticker, close, dma10, pivots)
+    histogram_b64 = render_returns_histogram(ticker, daily_returns)
+    benchmark_chart_b64 = render_benchmark_comparison_chart(ticker, close, benchmark_close)
+
+    outperformance_pct = (desc_stats["annual_return"] - market_return) * 100
 
     return {
         "ticker": ticker,
@@ -373,10 +508,17 @@ def analyze_ticker(ticker, benchmark_returns, market_return, market_vol, risk_fr
         "treynor": round(perf["treynor"], 3), "treynor_grade": perf["treynor_grade"],
         "alpha_pct": round(perf["jensen_alpha_pct"], 2), "alpha_grade": perf["jensen_alpha_grade"],
         "fama_pct": round(perf["fama_pct"], 2), "fama_grade": perf["fama_grade"],
+        "sortino": round(perf["sortino"], 2) if pd.notna(perf["sortino"]) else None,
+        "sortino_grade": perf["sortino_grade"],
+        "downside_deviation_pct": round(perf["downside_deviation_pct"], 2),
+        "benchmark_annual_return_pct": round(market_return * 100, 2),
+        "outperformance_pct": round(outperformance_pct, 2),
         "valuation": valuation,
         "price_percentile": round(percentile * 100, 1),
         "pivots": {k: round(v, 2) for k, v in pivots.items()},
         "chart_b64": chart_b64,
+        "histogram_b64": histogram_b64,
+        "benchmark_chart_b64": benchmark_chart_b64,
         "_returns": daily_returns,  # kept only for correlation matrix, stripped before JSON
     }
 
@@ -467,14 +609,15 @@ def api_analyze():
         return jsonify({"error": "Could not reach Yahoo Finance for Nifty 50 benchmark "
                                   "data right now. Please try again shortly."}), 502
 
-    benchmark_returns = benchmark_df["Close"].pct_change()
+    benchmark_close = benchmark_df["Close"]
+    benchmark_returns = benchmark_close.pct_change()
     market_stats = compute_descriptive_stats(benchmark_returns)
     market_return, market_vol = market_stats["annual_return"], market_stats["annual_volatility"]
 
     results = []
     returns_for_corr = {}
     for symbol in symbols:
-        r = analyze_ticker(symbol, benchmark_returns, market_return, market_vol, risk_free_rate)
+        r = analyze_ticker(symbol, benchmark_close, benchmark_returns, market_return, market_vol, risk_free_rate)
         if "error" not in r:
             returns_for_corr[symbol] = r.pop("_returns")
         results.append(r)
@@ -496,6 +639,7 @@ def api_analyze():
         "market_annual_vol_pct": round(market_vol * 100, 2),
         "results": results,
         "correlation": correlation,
+        "explanations": METRIC_EXPLANATIONS,
     })
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8790))
