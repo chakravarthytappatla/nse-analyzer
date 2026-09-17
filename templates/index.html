@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TERMINAL.NS — NSE Equity Analysis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">.NS</span>
+    <span class="brand-name">TERMINAL</span>
+  </div>
+  <div class="topbar-sub">NSE equity &middot; macro &middot; risk-adjusted performance, in one search</div>
+</header>
+
+<main>
+  <section class="hero">
+    <h1>Search a company. Get the full read.</h1>
+    <p class="hero-sub">Type a company name — the <code>.NS</code> suffix is handled for you. Add up to 6 names to compare them side by side.</p>
+
+    <div class="search-wrap">
+      <div class="search-box">
+        <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="tickerInput" type="text" autocomplete="off" placeholder="Try “TCS”, “Reliance”, “HDFC Bank”…" aria-label="Search NSE companies" aria-expanded="false" role="combobox" aria-controls="suggestList" />
+        <span class="search-suffix">.NS</span>
+      </div>
+      <ul id="suggestList" class="suggest-list" role="listbox" hidden></ul>
+    </div>
+
+    <div class="watchlist" id="watchlist" aria-live="polite"></div>
+
+    <div class="hero-actions">
+      <button id="analyzeBtn" class="btn-primary" disabled>Run analysis</button>
+      <span id="watchlistHint" class="hint">Add a company to get started</span>
+    </div>
+  </section>
+
+  <section id="statusArea" class="status-area" hidden>
+    <div class="loader" role="status" aria-label="Loading">
+      <span></span><span></span><span></span>
+    </div>
+    <p id="statusText">Pulling five years of price history…</p>
+  </section>
+
+  <section id="errorArea" class="error-banner" hidden></section>
+
+  <section id="macroBanner" class="macro-banner" hidden></section>
+
+  <section id="resultsGrid" class="results-grid"></section>
+
+  <section id="correlationSection" class="correlation-section" hidden>
+    <h2>Correlation matrix</h2>
+    <p class="section-sub">How closely daily returns move together across your watchlist.</p>
+    <div id="correlationTable" class="correlation-table-wrap"></div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <p>Data via Yahoo Finance. Prices delayed; figures are for research, not investment advice.</p>
+</footer>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
