@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Portfolio Management{% endblock %}
+{% block eyebrow %}Page 03 · Portfolio Management Analysis{% endblock %}
+{% block heading %}Build the portfolio. Prove it out-of-sample.{% endblock %}
+{% block subheading %}Six allocation models raced in a walk-forward backtest, efficient frontier, VaR / CVaR, risk contributions, Monte Carlo outlook and per-stock ARIMA–GARCH forecasts. Add 2–10 companies.{% endblock %}
+
+{% block controls %}
+<div class="controls" role="group" aria-label="Portfolio settings">
+  <label><span>Amount to invest <span class="unit">₹</span></span>
+    <input id="amountInput" type="number" step="10000" min="10000" value="1000000"></label>
+  <label><span>Max weight per stock <span class="unit">%</span></span>
+    <input id="maxWeightInput" type="number" step="5" min="5" max="100" value="{{ '%.0f'|format(defaults.max_weight) }}"></label>
+  <label><span>Equity risk premium <span class="unit">%</span></span>
+    <input id="erpInput" type="number" step="0.05" min="0" max="20" value="{{ '%.2f'|format(defaults.erp) }}"></label>
+</div>
+{% endblock %}
+{% block button %}Optimise portfolio{% endblock %}
+
+{% block results %}
+<section id="portfolioResults" class="portfolio-results"></section>
+<section id="forecastSection" class="forecast-section" hidden>
+  <h2>Forecast lab</h2>
+  <p class="section-sub">Per stock: ADF stationarity test → ARIMA order picked by AIC → tested on the last 63 days it never saw → GARCH-family volatility picked by AIC → 21-day price range.</p>
+  <div id="forecastList" class="results-list"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/portfolio.js') }}"></script>
+{% endblock %}

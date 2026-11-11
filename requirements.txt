@@ -6,3 +6,5 @@ numpy>=1.26.4
 matplotlib>=3.8.4
 scipy>=1.13.1
 requests==2.32.3
+statsmodels>=0.14.2
+arch>=7.0

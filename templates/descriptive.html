@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Descriptive Statistics{% endblock %}
+{% block eyebrow %}Page 01 · Descriptive Statistics{% endblock %}
+{% block heading %}Search a company. Get the full read.{% endblock %}
+{% block subheading %}Return distribution, risk-adjusted performance (Sharpe, Sortino, Treynor, Jensen, Fama), macro backdrop and technical levels. Up to 6 companies side by side.{% endblock %}
+
+{% block results %}
+<section id="resultsGrid" class="results-grid"></section>
+
+<section id="correlationSection" class="correlation-section" hidden>
+  <h2>Correlation matrix</h2>
+  <p class="section-sub">How closely daily returns move together across your watchlist.</p>
+  <div id="correlationTable" class="correlation-table-wrap"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/descriptive.js') }}"></script>
+{% endblock %}
