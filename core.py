@@ -15,6 +15,7 @@ import io
 import logging
 import math
 import os
+import threading
 import time
 import warnings
 from datetime import datetime, timedelta
@@ -73,15 +74,54 @@ LOSS = "#ff5c5c"
 _cache = {}
 
 
-def cache_get(key):
+def cache_get(key, ttl=CACHE_TTL_SECONDS):
     entry = _cache.get(key)
-    if entry and (time.time() - entry["ts"]) < CACHE_TTL_SECONDS:
+    if entry and (time.time() - entry["ts"]) < ttl:
         return entry["value"]
     return None
 
 
 def cache_set(key, value):
     _cache[key] = {"value": value, "ts": time.time()}
+
+
+# ------------------------------------------------------------------------------
+# Persistent disk cache — survives restarts. On Azure App Service /home is a
+# persistent share; locally it falls back to the system temp folder.
+# ------------------------------------------------------------------------------
+import pickle
+import tempfile
+
+DATA_DIR = os.environ.get("NSE_DATA_DIR") or (
+    "/home/data/nse-terminal" if os.path.isdir("/home/site") else
+    os.path.join(tempfile.gettempdir(), "nse-terminal-cache"))
+
+
+def _disk_path(key):
+    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in key)
+    return os.path.join(DATA_DIR, safe + ".pkl")
+
+
+def disk_get(key, max_age_seconds):
+    path = _disk_path(key)
+    try:
+        if time.time() - os.path.getmtime(path) > max_age_seconds:
+            return None
+        with open(path, "rb") as fh:
+            return pickle.load(fh)
+    except (OSError, pickle.PickleError, EOFError, AttributeError, ImportError):
+        return None
+
+
+def disk_set(key, value):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        tmp = _disk_path(key) + ".tmp"
+        with open(tmp, "wb") as fh:
+            pickle.dump(value, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, _disk_path(key))   # atomic: readers never see half a file
+    except OSError:
+        pass                               # cache is best-effort
 
 
 def date_range(years=HISTORY_YEARS):
@@ -133,21 +173,43 @@ def clean_json(obj):
 # DATA ACQUISITION
 # ==============================================================================
 
-def fetch_price_history(ticker, start, end):
-    """OHLCV for one ticker, with yfinance's noisy prints suppressed."""
-    buf_out, buf_err = io.StringIO(), io.StringIO()
-    try:
-        with contextlib.redirect_stdout(buf_out), contextlib.redirect_stderr(buf_err):
-            df = yh.download(ticker, start=start, end=end, progress=False,
-                             auto_adjust=False, threads=False)
-    except Exception:
-        return pd.DataFrame()
+# yfinance keeps download results in a module-level dict and we silence its
+# prints by swapping the process-wide stdout/stderr — neither is thread-safe.
+# Under gunicorn threads two concurrent downloads can return an empty or even
+# the wrong ticker's frame, so every Yahoo call goes through this one lock.
+YAHOO_LOCK = threading.RLock()
+DOWNLOAD_RETRIES = 3
+
+
+def _download_once(ticker, start, end):
+    buf = io.StringIO()
+    with YAHOO_LOCK, contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        df = yh.download(ticker, start=start, end=end, progress=False,
+                         auto_adjust=False, threads=False)
     if df is None or df.empty:
         return pd.DataFrame()
     if isinstance(df.columns, pd.MultiIndex):
+        # guard against a frame that belongs to another ticker
+        tickers = set(df.columns.get_level_values(-1))
+        if tickers and ticker not in tickers:
+            return pd.DataFrame()
         df.columns = df.columns.get_level_values(0)
     df.index = pd.to_datetime(df.index).tz_localize(None)
     return df.dropna(how="all")
+
+
+def fetch_price_history(ticker, start, end):
+    """OHLCV for one ticker. Retries transient empty responses from Yahoo."""
+    for attempt in range(DOWNLOAD_RETRIES):
+        try:
+            df = _download_once(ticker, start, end)
+        except Exception:
+            df = pd.DataFrame()
+        if not df.empty:
+            return df
+        if attempt < DOWNLOAD_RETRIES - 1:
+            time.sleep(1.5 * (attempt + 1))
+    return pd.DataFrame()
 
 
 def fetch_price_history_cached(ticker):
@@ -157,7 +219,8 @@ def fetch_price_history_cached(ticker):
         return cached
     start, end = date_range()
     df = fetch_price_history(ticker, start, end)
-    cache_set(key, df)
+    if not df.empty:              # never cache a failed download
+        cache_set(key, df)
     return df
 
 
@@ -218,9 +281,10 @@ def fetch_risk_free():
                 break
 
     if result is None:
-        result = {"rate": FALLBACK_RISK_FREE_RATE, "yields": pd.Series(dtype=float),
-                  "source": "Fallback assumption (live yield unavailable)",
-                  "as_of": None}
+        # not cached: the next request retries the live sources
+        return {"rate": FALLBACK_RISK_FREE_RATE, "yields": pd.Series(dtype=float),
+                "source": "Fallback assumption (live yield unavailable)",
+                "as_of": None}
 
     cache_set(key, result)
     return result
@@ -264,7 +328,8 @@ def fetch_macro_factors():
         df = fetch_price_history_cached(ticker)
         if not df.empty and "Close" in df.columns and df["Close"].notna().sum() > 200:
             out[name] = df["Close"].dropna()
-    cache_set(key, out)
+    if len(out) == len(MACRO_FACTOR_TICKERS):   # only cache a complete set
+        cache_set(key, out)
     return out
 
 

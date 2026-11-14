@@ -613,3 +613,43 @@ table.data-table tr.row-bench th, table.data-table tr.row-bench td{ color: var(-
 @media (max-width: 460px){
   .results-grid{ grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ======================================================================== */
+/* v4 — Page 04 · Model Validation                                          */
+/* ======================================================================== */
+.method-strip{
+  display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px;
+  max-width: 900px; margin: 24px auto 0; text-align:left;
+}
+.method-strip div{
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; font-size: 12.5px; color: var(--text-dim); display:flex; gap: 10px; align-items:flex-start;
+}
+.m-num{ font-family: var(--font-mono); color: var(--accent); font-weight: 600; }
+
+.check-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 8px; margin: 6px 0 12px; }
+.check{ display:flex; gap: 10px; align-items:flex-start; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--surface-2); }
+.check b{ display:block; font-size: 13px; margin-bottom: 3px; }
+.check span{ font-size: 12.5px; color: var(--text-dim); line-height: 1.45; }
+.check .c-icon{ font-family: var(--font-mono); font-size: 15px; font-weight: 700; width: 18px; flex-shrink: 0; color: var(--text-dim); }
+.check.pass .c-icon{ color: var(--gain); }
+.check.fail .c-icon{ color: var(--loss); }
+.check.neutral .c-icon{ color: var(--fair); }
+.check.pass{ border-color: rgba(55,214,122,.3); }
+.check.fail{ border-color: rgba(255,92,92,.3); }
+.check.neutral{ border-color: rgba(242,193,78,.3); }
+
+.kpi .k-sub{ display:block; font-size: 11px; color: var(--text-faint); margin-top: 3px; }
+
+.btn-secondary{
+  font-family: var(--font-mono); font-size: 12.5px; color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 999px; padding: 9px 16px; cursor: pointer; margin-top: 12px;
+}
+.btn-secondary:hover{ border-color: var(--accent); color: var(--accent); }
+
+@media (max-width: 720px){
+  .check-grid{ grid-template-columns: 1fr; }
+}
+
+/* `hidden` must always win over component display rules (e.g. .macro-banner{display:flex}) */
+[hidden]{ display: none !important; }

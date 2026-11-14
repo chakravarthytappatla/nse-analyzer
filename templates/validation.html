@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Model Validation{% endblock %}
+{% block eyebrow %}Page 04 · Model Validation · {{ first_year }} → today{% endblock %}
+{% block heading %}Did the model really predict the price?{% endblock %}
+{% block subheading %}Walk-forward backtest of the Forecast-lab model (ARIMA + GARCH, both picked by AIC). Each year is forecast using only the 5 years before it, then compared with the real Yahoo Finance price — and with the naive “tomorrow = today” forecast.{% endblock %}
+
+{% block controls %}
+<div class="method-strip" aria-label="How the test works">
+  <div><span class="m-num">1</span>Train on the 5 years before 1 Jan of the test year</div>
+  <div><span class="m-num">2</span>Pick ARIMA order &amp; GARCH model by AIC</div>
+  <div><span class="m-num">3</span>Freeze it and forecast every day of that year</div>
+  <div><span class="m-num">4</span>Score vs real price &amp; vs naive forecast</div>
+</div>
+{% endblock %}
+{% block button %}Run validation{% endblock %}
+
+{% block results %}
+<section id="validationList" class="results-list"></section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/validation.js') }}"></script>
+{% endblock %}

@@ -35,7 +35,7 @@ from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.stats.stattools import durbin_watson, jarque_bera
 
 from core import (
-    ACCENT, INFO, SERIES_COLORS, CHART_DIM,
+    YAHOO_LOCK, ACCENT, INFO, SERIES_COLORS, CHART_DIM,
     adjusted_close, as_float, cache_get, cache_set, fetch_macro_factors,
     fetch_price_history_cached, fig_to_b64, legend, new_figure, set_title,
 )
@@ -191,7 +191,7 @@ def run_beta_race(frame):
 def _quiet(fn):
     buf = io.StringIO()
     try:
-        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        with YAHOO_LOCK, contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
             return fn()
     except Exception:
         return None
@@ -245,7 +245,8 @@ def fetch_fundamentals(symbol):
                              "Cash And Cash Equivalents"]),
         "fcf": _row_series(cf, ["Free Cash Flow"]),
     }
-    cache_set(key, out)
+    if out["market_cap"] or len(out["fcf"]):    # never cache an empty response
+        cache_set(key, out)
     return out
 
 
