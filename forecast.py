@@ -184,6 +184,12 @@ def run_forecast(symbol):
         "current_vol": float(cond_vol.iloc[-1]),
         "forecast_vol_21d": float(np.sqrt(var_path.mean() * TRADING_DAYS_PER_YEAR)),
         "points": points,
+        # raw forecast paths (per trading day ahead) — used by the Smart
+        # Prediction page to price any horizon from 1 to 21 days
+        "mean_path": [float(x) for x in mean_path],
+        "var_path": [float(x) for x in var_path],
+        "garch_nu": next((g["nu"] for g in garch_table if g["best_aic"]), None),
+        "last_date": str(close.index[-1].date()),
         "fan_chart_b64": fan_b64,
         "vol_chart_b64": render_vol_chart(symbol, cond_vol, log_ret),
     }

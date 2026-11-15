@@ -6,14 +6,16 @@ Pages
   GET  /                    -> Page 1 · Descriptive Statistics
   GET  /wacc                -> Page 2 · WACC Analysis
   GET  /portfolio           -> Page 3 · Portfolio Management
-  GET  /validation          -> Page 4 · Model Validation (2018 → today backtest)
+  GET  /prediction          -> Page 4 · Smart Prediction (1 min → 1 month)
+  # GET /validation         -> Model Validation — private, disabled (see below)
 API
   GET  /api/suggest?q=TC    -> NSE ticker autocomplete
   POST /api/analyze         -> descriptive statistics      (descriptive.py)
   POST /api/wacc            -> cost of capital + DCF        (wacc.py)
   POST /api/portfolio       -> optimisation + backtest      (portfolio.py)
   POST /api/forecast        -> ARIMA / GARCH forecast, 1 stock (forecast.py)
-  POST /api/backtest        -> walk-forward validation, 1 stock (backtest.py)
+  POST /api/predict         -> price probabilities, 1 stock     (predict.py)
+  # POST /api/backtest      -> walk-forward validation — private, disabled
 ==============================================================================
 """
 import os
@@ -23,10 +25,11 @@ import time
 import requests
 from flask import Flask, jsonify, render_template, request
 
-import backtest
+# import backtest   # Model Validation — kept private, see the commented routes below
 import descriptive
 import forecast
 import portfolio
+import predict
 import wacc
 from core import as_float, cache_get, cache_set, clean_json, market_context, normalize_symbols
 
@@ -89,10 +92,21 @@ def page_portfolio():
 # API
 # ==============================================================================
 
-@app.route("/validation")
-def page_validation():
-    return render_template("validation.html", active="validation",
-                           first_year=backtest.FIRST_TEST_YEAR)
+@app.route("/prediction")
+def page_prediction():
+    return render_template("prediction.html", active="prediction")
+
+
+# ------------------------------------------------------------------------------
+# Model Validation page — kept PRIVATE on purpose. The walk-forward backtest
+# (backtest.py, templates/validation.html, static/js/validation.js) stays in the
+# codebase; uncomment this route, the /api/backtest route below, the
+# `import backtest` line and the nav link in base.html to switch it back on.
+# ------------------------------------------------------------------------------
+# @app.route("/validation")
+# def page_validation():
+#     return render_template("validation.html", active="validation",
+#                            first_year=backtest.FIRST_TEST_YEAR)
 
 
 @app.route("/api/suggest")
@@ -189,59 +203,75 @@ def api_forecast():
     return jsonify(clean_json(out))
 
 
-# ------------------------------------------------------------------------------
-# Backtest = background job + polling. A first run of a stock can take minutes
-# on a small cloud CPU, longer than Azure's ~230 s request limit, so the
-# request never waits for it: it starts (or reports) a job and the page polls.
-# Jobs run one at a time so they don't fight over a single-core plan.
-# ------------------------------------------------------------------------------
-_jobs = {}                                # symbol -> {"status", "result", "started"}
-_jobs_lock = threading.Lock()
-_compute_slot = threading.Semaphore(1)    # one backtest computes at a time
-JOB_RESULT_TTL = 15 * 60
-
-
-def _run_backtest_job(symbol):
-    with _compute_slot:
-        with _jobs_lock:
-            _jobs[symbol]["status"] = "running"
-            _jobs[symbol]["started"] = time.time()
-        try:
-            result = clean_json(backtest.run_backtest(symbol))
-        except Exception as exc:
-            result = {"ticker": symbol, "error": f"Backtest failed: {exc}"}
-    with _jobs_lock:
-        _jobs[symbol].update(status="done", result=result, finished=time.time())
-
-
-@app.route("/api/backtest", methods=["POST"])
-def api_backtest():
+@app.route("/api/predict", methods=["POST"])
+def api_predict():
     payload = request.get_json(silent=True) or {}
     symbols = normalize_symbols([payload.get("symbol")], 1)
     if not symbols:
         return _error("No valid symbol supplied.")
-    symbol = symbols[0]
-    with _jobs_lock:
-        job = _jobs.get(symbol)
-        if job and job["status"] == "done":
-            result = job["result"]
-            if "error" in result:
-                # report a failure once, then forget it so the next click retries
-                del _jobs[symbol]
-                return jsonify(result)
-            if time.time() - job["finished"] < JOB_RESULT_TTL:
-                return jsonify(result)
-            job = None
-        if job is None:
-            job = {"status": "queued", "queued_at": time.time()}
-            _jobs[symbol] = job
-            threading.Thread(target=_run_backtest_job, args=(symbol,), daemon=True).start()
-        ahead = sum(1 for s, j in _jobs.items()
-                    if j["status"] in ("queued", "running") and s != symbol
-                    and j.get("queued_at", 0) < job.get("queued_at", 0))
-        elapsed = time.time() - job.get("started", time.time())
-    return jsonify({"ticker": symbol, "status": job["status"], "queue_position": ahead,
-                    "elapsed": round(elapsed)}), 202
+    try:
+        out = predict.run_predict(symbols[0])
+    except Exception as exc:
+        out = {"ticker": symbols[0], "error": f"Prediction failed: {exc}"}
+    return jsonify(clean_json(out))
+
+
+# ==============================================================================
+# PRIVATE — Model Validation backtest API (disabled; see page_validation above)
+# ==============================================================================
+# # ------------------------------------------------------------------------------
+# # Backtest = background job + polling. A first run of a stock can take minutes
+# # on a small cloud CPU, longer than Azure's ~230 s request limit, so the
+# # request never waits for it: it starts (or reports) a job and the page polls.
+# # Jobs run one at a time so they don't fight over a single-core plan.
+# # ------------------------------------------------------------------------------
+# _jobs = {}                                # symbol -> {"status", "result", "started"}
+# _jobs_lock = threading.Lock()
+# _compute_slot = threading.Semaphore(1)    # one backtest computes at a time
+# JOB_RESULT_TTL = 15 * 60
+#
+#
+# def _run_backtest_job(symbol):
+#     with _compute_slot:
+#         with _jobs_lock:
+#             _jobs[symbol]["status"] = "running"
+#             _jobs[symbol]["started"] = time.time()
+#         try:
+#             result = clean_json(backtest.run_backtest(symbol))
+#         except Exception as exc:
+#             result = {"ticker": symbol, "error": f"Backtest failed: {exc}"}
+#     with _jobs_lock:
+#         _jobs[symbol].update(status="done", result=result, finished=time.time())
+#
+#
+# @app.route("/api/backtest", methods=["POST"])
+# def api_backtest():
+#     payload = request.get_json(silent=True) or {}
+#     symbols = normalize_symbols([payload.get("symbol")], 1)
+#     if not symbols:
+#         return _error("No valid symbol supplied.")
+#     symbol = symbols[0]
+#     with _jobs_lock:
+#         job = _jobs.get(symbol)
+#         if job and job["status"] == "done":
+#             result = job["result"]
+#             if "error" in result:
+#                 # report a failure once, then forget it so the next click retries
+#                 del _jobs[symbol]
+#                 return jsonify(result)
+#             if time.time() - job["finished"] < JOB_RESULT_TTL:
+#                 return jsonify(result)
+#             job = None
+#         if job is None:
+#             job = {"status": "queued", "queued_at": time.time()}
+#             _jobs[symbol] = job
+#             threading.Thread(target=_run_backtest_job, args=(symbol,), daemon=True).start()
+#         ahead = sum(1 for s, j in _jobs.items()
+#                     if j["status"] in ("queued", "running") and s != symbol
+#                     and j.get("queued_at", 0) < job.get("queued_at", 0))
+#         elapsed = time.time() - job.get("started", time.time())
+#     return jsonify({"ticker": symbol, "status": job["status"], "queue_position": ahead,
+#                     "elapsed": round(elapsed)}), 202
 
 
 if __name__ == "__main__":

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Smart Prediction{% endblock %}
+{% block eyebrow %}Page 04 · Smart Prediction{% endblock %}
+{% block heading %}Where could the price be next?{% endblock %}
+{% block subheading %}Search a company to see its likely price in the next minute, 10 minutes, 1 day, 2 days, 1 week and 1 month — with the price range and the probability of going up or down. Set any target price to see the chance of reaching it.{% endblock %}
+{% block button %}Predict prices{% endblock %}
+
+{% block results %}
+<section id="predictArea" class="predict-area" hidden>
+  <div id="stockTabs" class="stock-tabs" role="tablist" aria-label="Predicted stocks"></div>
+  <div id="stockView"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/prediction.js') }}"></script>
+{% endblock %}

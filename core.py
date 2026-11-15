@@ -224,6 +224,40 @@ def fetch_price_history_cached(ticker):
     return df
 
 
+INTRADAY_TTL_SECONDS = 60
+
+
+def fetch_intraday(ticker):
+    """Last ~5 sessions of 1-minute bars (index in Asia/Kolkata). Cached 60 s."""
+    key = f"intraday:{ticker}"
+    cached = cache_get(key, INTRADAY_TTL_SECONDS)
+    if cached is not None:
+        return cached
+    df = pd.DataFrame()
+    for attempt in range(DOWNLOAD_RETRIES):
+        buf = io.StringIO()
+        try:
+            with YAHOO_LOCK, contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+                df = yh.download(ticker, period="5d", interval="1m", progress=False,
+                                 auto_adjust=False, threads=False)
+        except Exception:
+            df = pd.DataFrame()
+        if df is not None and not df.empty:
+            break
+        time.sleep(1.5 * (attempt + 1))
+    if df is None or df.empty:
+        return pd.DataFrame()
+    if isinstance(df.columns, pd.MultiIndex):
+        if ticker not in set(df.columns.get_level_values(-1)):
+            return pd.DataFrame()
+        df.columns = df.columns.get_level_values(0)
+    idx = pd.to_datetime(df.index)
+    df.index = (idx.tz_localize("UTC") if idx.tz is None else idx).tz_convert("Asia/Kolkata")
+    df = df.dropna(subset=["Close"])
+    cache_set(key, df)
+    return df
+
+
 def adjusted_close(df):
     """Total-return series (dividends & splits adjusted) when available."""
     if "Adj Close" in df.columns and df["Adj Close"].notna().sum() > 0:
