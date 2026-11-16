@@ -110,6 +110,39 @@ def page_prediction():
 #                            first_year=backtest.FIRST_TEST_YEAR)
 
 
+# ------------------------------------------------------------------------------
+# SEO: sitemap.xml + robots.txt for Google Search Console.
+# SITE_URL is the public address; set the env var if a custom domain is added.
+# Only public pages are listed (the private validation page and /api/ are not).
+# ------------------------------------------------------------------------------
+SITE_URL = os.environ.get(
+    "SITE_URL", "https://nse-analyser-eacudrbtgfffgzez.centralindia-01.azurewebsites.net").rstrip("/")
+SITEMAP_PAGES = [                       # (path, change frequency, priority)
+    ("/", "daily", "1.0"),
+    ("/prediction", "daily", "0.9"),
+    ("/portfolio", "weekly", "0.8"),
+    ("/wacc", "weekly", "0.8"),
+]
+_LASTMOD = time.strftime("%Y-%m-%d", time.gmtime(os.path.getmtime(__file__)))   # deploy date
+
+
+@app.route("/sitemap.xml")
+def sitemap():
+    urls = "".join(
+        f"  <url>\n    <loc>{SITE_URL}{path}</loc>\n    <lastmod>{_LASTMOD}</lastmod>\n"
+        f"    <changefreq>{freq}</changefreq>\n    <priority>{prio}</priority>\n  </url>\n"
+        for path, freq, prio in SITEMAP_PAGES)
+    xml = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls + "</urlset>\n")
+    return app.response_class(xml, mimetype="application/xml")
+
+
+@app.route("/robots.txt")
+def robots():
+    txt = f"User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: {SITE_URL}/sitemap.xml\n"
+    return app.response_class(txt, mimetype="text/plain")
+
+
 @app.route("/api/suggest")
 def api_suggest():
     q = request.args.get("q", "").strip()
