@@ -760,3 +760,12 @@ table.data-table tr.row-bench th, table.data-table tr.row-bench td{ color: var(-
 @media (max-width: 720px){
   .predict-card .headline-num{ text-align: left; }
 }
+
+/* v6 — today's accuracy panel on Smart Prediction */
+.today-box{ margin-top: 22px; border: 1px solid var(--border); border-radius: 10px; padding: 4px 16px 14px; background: var(--surface); }
+.today-box h4 .muted{ font-family: var(--font-mono); font-weight: 400; }
+.today-box .chart-box{ margin: 6px 0 4px; }
+.pchart .f10 line{ stroke-width: 2; }
+.pchart .fin line, .pchart .fin circle{ stroke: var(--accent); fill: var(--accent); }
+.pchart .fout line, .pchart .fout circle{ stroke: #d55181; fill: #d55181; }
+.lg-in{ background: var(--accent); } .lg-out{ background: #d55181; }

@@ -201,6 +201,8 @@
           <span class="muted">Updated ${fmtClock(d.now)} IST</span>
         </div>
 
+        <div id="todayBox" class="today-box"><p class="muted">Checking today’s accuracy…</p></div>
+
         <details class="coef-details"><summary>How is this predicted?</summary>
           <div class="how">
             <p><b>1 day → 1 month:</b> ${esc(d.model.daily_mean)} expected return + ${esc(d.model.daily_vol)} volatility (each picked by AIC on 5 years of daily prices). Forecast volatility ≈ ${NS.num(d.model.daily_vol_annual_pct, 1)}% a year.</p>
@@ -232,6 +234,7 @@
     $('refreshNow').addEventListener('click', () => refresh(true));
     updateHorizon();
     if (state.auto && d.market_open) startRefresh();
+    loadToday(d.ticker);
   }
 
   function updateHorizon() {
@@ -386,10 +389,131 @@
     hit.addEventListener('mouseleave', () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); });
   }
 
+  // ------------------------------------------------- today's accuracy panel
+  // Scores the model against the latest session using only data available at
+  // the time of each forecast. One day is a small sample, so the panel shows
+  // the rolling minute checks (hundreds per day) next to the opening calls.
+  const todayCache = {};
+  const ok = (b) => (b ? '<span class="pos">✓ Inside</span>' : '<span class="neg">✗ Outside</span>');
+  const dirTxt = (b) => (b === null || b === undefined ? '<span class="muted">no move</span>' : b ? '<span class="pos">✓ Right</span>' : '<span class="neg">✗ Wrong</span>');
+  const calib = (v, target) => {
+    if (!isNum(v)) return '—';
+    const gap = v - target;
+    const tol = target >= 90 ? 3 : 5;    // 90% range: within ±3 pts; 50% range: ±5 pts
+    const verdict = Math.abs(gap) <= tol ? 'on target' : gap < 0 ? 'a bit narrow' : 'a bit wide';
+    return `${v.toFixed(1)}% <span class="muted">(${verdict})</span>`;
+  };
+
+  async function loadToday(ticker, force) {
+    const box = $('todayBox');
+    if (!box) return;
+    const hit = todayCache[ticker];
+    if (hit && !force && Date.now() - hit.at < 60 * 1000) { renderToday(hit.data); return; }
+    try {
+      const r = await NS.postJSON('/api/predict/accuracy', { symbol: ticker });
+      todayCache[ticker] = { at: Date.now(), data: r };
+      if (state.current === ticker) renderToday(r);
+    } catch (e) {
+      if (state.current === ticker && $('todayBox')) $('todayBox').innerHTML = `<p class="card-error">${esc(e.message)}</p>`;
+    }
+  }
+
+  function renderToday(t) {
+    const box = $('todayBox');
+    if (!box) return;
+    if (t.error) { box.innerHTML = `<h4>How accurate was the model today?</h4><p class="muted">${esc(t.error)}</p>`; return; }
+    const day = fmt(t.session + 'T12:00:00+05:30', { weekday: 'short', day: 'numeric', month: 'short' });
+    const m1 = t.rolling_1m, m10 = t.rolling_10m;
+    const oneDay = t.opening.find((o) => o.label === '1 day');
+    const opens = t.opening.map((o) => `
+      <tr><th>${esc(o.label)}${o.final ? '' : ' <span class="tag">live</span>'}</th>
+        <td>${fmtClock(o.final ? o.target : o.as_of)}</td><td>${inr(o.pred)}</td><td>${inr(o.lo90, 0)} – ${inr(o.hi90, 0)}</td>
+        <td>${inr(o.actual)}</td><td>${signed(o.error_pct)}</td><td>${ok(o.in50)}</td><td>${ok(o.in90)}</td><td>${dirTxt(o.direction_ok)}</td></tr>`).join('');
+    const roll = (name, m) => (m ? `
+      <tr><th>${name}</th><td>${m.n}</td><td>${m.accuracy.toFixed(2)}%</td><td>${NS.num(m.theil_u, 3)}</td>
+        <td>${isNum(m.hit_rate) ? m.hit_rate.toFixed(1) + '%' : '—'}</td><td>${calib(m.cover50, 50)}</td><td>${calib(m.cover90, 90)}</td></tr>` : '');
+    box.innerHTML = `
+      <h4>How accurate was the model today? <span class="muted">· ${day}${t.live ? ` · live, as of ${fmtClock(t.as_of)} IST` : ' · session closed'}</span></h4>
+      <div class="kpi-row">
+        <div class="kpi"><span class="k-label">1-day forecast accuracy${oneDay && !oneDay.final ? ' (so far)' : ''}</span><span class="k-value">${oneDay ? (100 - Math.abs(oneDay.error_pct)).toFixed(2) + '%' : '—'}</span><span class="k-sub">${oneDay ? `${inr(oneDay.pred)} predicted vs ${inr(oneDay.actual)}` : ''}</span></div>
+        <div class="kpi"><span class="k-label">10-min forecasts inside 90% range</span><span class="k-value">${m10 ? m10.cover90.toFixed(0) + '%' : '—'}</span><span class="k-sub">${m10 ? `${m10.n} checks · target 90%` : ''}</span></div>
+        <div class="kpi"><span class="k-label">1-min forecasts inside 90% range</span><span class="k-value">${m1 ? m1.cover90.toFixed(0) + '%' : '—'}</span><span class="k-sub">${m1 ? `${m1.n} checks · target 90%` : ''}</span></div>
+        <div class="kpi"><span class="k-label">Direction right (1-min / 10-min)</span><span class="k-value">${m1 && isNum(m1.hit_rate) ? m1.hit_rate.toFixed(0) : '—'}% / ${m10 && isNum(m10.hit_rate) ? m10.hit_rate.toFixed(0) : '—'}%</span><span class="k-sub">50% = coin flip</span></div>
+      </div>
+      <div id="todayChart" class="chart-box"></div>
+      <p class="metric-note">Forecasts made from the previous close (${inr(t.prev_close)}, ${esc(t.prev_date)}) — what this page showed before the market opened:</p>
+      <div class="table-wrap"><table class="data-table compact">
+        <thead><tr><th>Horizon</th><th>Checked at</th><th>Predicted</th><th>90% range</th><th>Actual</th><th>Error</th><th>50% range</th><th>90% range</th><th>Direction</th></tr></thead>
+        <tbody>${opens}</tbody></table></div>
+      <p class="metric-note">Rolling checks — at every minute (and every 10 minutes) the model predicted ahead using only data up to then:</p>
+      <div class="table-wrap"><table class="data-table compact">
+        <thead><tr><th>Forecast</th><th>Checks</th><th>Accuracy</th><th>vs naive (Theil’s U)</th><th>Direction right</th><th>Inside 50% range</th><th>Inside 90% range</th></tr></thead>
+        <tbody>${roll('1 minute ahead', m1)}${roll('10 minutes ahead', m10)}</tbody></table></div>
+      <p class="metric-note">Accuracy = 100 − average % error. It is always high over minutes because prices barely move; Theil’s U ≈ 1.00 means it ties with “the price stays where it is”. The ranges are what to judge: about 50% and 90% of real prices should fall inside them. One day is a small sample.</p>`;
+    drawToday(t);
+  }
+
+  // Today's price with each 10-minute forecast: dot = predicted, bar = 90% range.
+  function drawToday(t) {
+    const box = $('todayChart');
+    if (!box || !t.chart.t.length) return;
+    const W = Math.max(320, Math.round(box.clientWidth - 16) || 760);
+    const H = W < 520 ? 230 : 280, L = W < 520 ? 52 : 64, R = 16, T = 14, B = 30;
+    const t0 = Date.parse(t.chart.t[0]), t1 = Date.parse(t.chart.t[t.chart.t.length - 1]);
+    const xAt = (iso) => L + ((Date.parse(iso) - t0) / Math.max(1, t1 - t0)) * (W - L - R);
+    const vals = [...t.chart.p];
+    t.chart.f10.forEach((f) => vals.push(f.lo90, f.hi90));
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    const pad = (hi - lo) * 0.06 || hi * 0.005; lo -= pad; hi += pad;
+    const yAt = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+    const line = t.chart.t.map((iso, i) => `${xAt(iso).toFixed(1)},${yAt(t.chart.p[i]).toFixed(1)}`).join(' ');
+    const ticks = Array.from({ length: 4 }, (_, k) => lo + (k / 3) * (hi - lo));
+    const marks = t.chart.f10.map((f) => {
+      const x = xAt(f.t1).toFixed(1), inside = f.actual >= f.lo90 && f.actual <= f.hi90;
+      return `<g class="${inside ? 'fin' : 'fout'}"><line x1="${x}" x2="${x}" y1="${yAt(f.hi90).toFixed(1)}" y2="${yAt(f.lo90).toFixed(1)}"/><circle cx="${x}" cy="${yAt(f.pred).toFixed(1)}" r="3.5"/></g>`;
+    }).join('');
+    const nOut = t.chart.f10.filter((f) => f.actual < f.lo90 || f.actual > f.hi90).length;
+    const labels = [t.chart.t[0], t.chart.t[Math.floor(t.chart.t.length / 2)], t.chart.t[t.chart.t.length - 1]];
+    box.innerHTML = `
+      <svg viewBox="0 0 ${W} ${H}" class="pchart" role="img" aria-label="Today's price with each 10-minute forecast and its 90% range; ${nOut} of ${t.chart.f10.length} fell outside">
+        <g class="grid">${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${yAt(v).toFixed(1)}" y2="${yAt(v).toFixed(1)}"/><text x="${L - 8}" y="${(yAt(v) + 4).toFixed(1)}" text-anchor="end">${inr(v, 0)}</text>`).join('')}</g>
+        <g class="xlabels">${labels.map((iso, i) => `<text x="${xAt(iso).toFixed(1)}" y="${H - 8}" text-anchor="${i === 0 ? 'start' : i === 2 ? 'end' : 'middle'}">${fmtClock(iso)}</text>`).join('')}</g>
+        <polyline class="hist" points="${line}"/>
+        <g class="f10">${marks}</g>
+        <line id="tcross" class="cross" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/>
+        <rect class="hit" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}"/>
+      </svg>
+      <div class="chart-legend"><span><i class="lg-hist"></i>Actual price today</span><span><i class="lg-in"></i>10-min forecast, real price inside 90% range</span><span><i class="lg-out"></i>outside (${nOut} of ${t.chart.f10.length})</span></div>
+      <div id="todayTip" class="chart-tip" hidden></div>`;
+    const svg = box.querySelector('svg'), hitR = box.querySelector('.hit'), tip = $('todayTip'), cross = $('tcross');
+    box.style.position = 'relative';
+    const show = (ev) => {
+      const rect = svg.getBoundingClientRect();
+      const x = ((ev.clientX - rect.left) / rect.width) * W;
+      let best = null, bd = Infinity;
+      t.chart.f10.forEach((f) => { const dd = Math.abs(xAt(f.t1) - x); if (dd < bd) { bd = dd; best = f; } });
+      if (!best) return;
+      const cx = xAt(best.t1);
+      cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
+      const inside = best.actual >= best.lo90 && best.actual <= best.hi90;
+      tip.innerHTML = `<b>${fmtClock(best.t0)} → ${fmtClock(best.t1)}</b><br>Predicted ${inr(best.pred)}<br>90%: ${inr(best.lo90)} – ${inr(best.hi90)}<br>Actual ${inr(best.actual)} · ${inside ? '✓ inside' : '✗ outside'}`;
+      tip.hidden = false;
+      tip.style.left = `${Math.min(Math.max((cx / W) * rect.width + 12, 0), rect.width - 200)}px`;
+      tip.style.top = '10px';
+    };
+    hitR.addEventListener('mousemove', show);
+    hitR.addEventListener('touchstart', (e) => show(e.touches[0]), { passive: true });
+    hitR.addEventListener('mouseleave', () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); });
+  }
+
   let resizeTimer = null;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { if ($('hzSummary') && state.current && state.data[state.current] && !state.data[state.current].error) updateTarget(); }, 150);
+    resizeTimer = setTimeout(() => {
+      if ($('hzSummary') && state.current && state.data[state.current] && !state.data[state.current].error) updateTarget();
+      const tc = todayCache[state.current];
+      if (tc && !tc.data.error && $('todayChart')) drawToday(tc.data);
+    }, 150);
   });
 
   // --------------------------------------------------------------- refresh
@@ -401,6 +525,7 @@
     try {
       const r = await NS.postJSON('/api/predict', { symbol: t });
       state.data[t] = r;
+      delete todayCache[t];          // re-score today with the newest minutes
       renderTabs();
       if (t === state.current) renderStock();
     } catch (e) {

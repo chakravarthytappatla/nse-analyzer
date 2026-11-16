@@ -15,6 +15,7 @@ API
   POST /api/portfolio       -> optimisation + backtest      (portfolio.py)
   POST /api/forecast        -> ARIMA / GARCH forecast, 1 stock (forecast.py)
   POST /api/predict         -> price probabilities, 1 stock     (predict.py)
+  POST /api/predict/accuracy -> today's accuracy scorecard       (predict.py)
   # POST /api/backtest      -> walk-forward validation — private, disabled
 ==============================================================================
 """
@@ -213,6 +214,20 @@ def api_predict():
         out = predict.run_predict(symbols[0])
     except Exception as exc:
         out = {"ticker": symbols[0], "error": f"Prediction failed: {exc}"}
+    return jsonify(clean_json(out))
+
+
+@app.route("/api/predict/accuracy", methods=["POST"])
+def api_predict_accuracy():
+    """How accurate the prediction model was in the latest session."""
+    payload = request.get_json(silent=True) or {}
+    symbols = normalize_symbols([payload.get("symbol")], 1)
+    if not symbols:
+        return _error("No valid symbol supplied.")
+    try:
+        out = predict.today_scorecard(symbols[0])
+    except Exception as exc:
+        out = {"ticker": symbols[0], "error": f"Accuracy check failed: {exc}"}
     return jsonify(clean_json(out))
 
 
